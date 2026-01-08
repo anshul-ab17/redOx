@@ -1,8 +1,10 @@
 use mio::{Poll, Events, Interest, Token};
-use mio::net::{TcpListener, TcpStream};
+use mio::net::TcpListener;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::io::{self, Read, Write};
+use std::io;
+
+use crate::core::connection::{Connection, State};
 
 pub struct Server;
 
@@ -16,8 +18,7 @@ impl Server {
         const SERVER: Token = Token(0);
         let mut next_token = 1;
 
-        let mut clients = HashMap::new();
-        let mut buffers = HashMap::new();
+        let mut connections: HashMap<Token, Connection> = HashMap::new();
 
         poll.registry()
             .register(&mut listener, SERVER, Interest::READABLE)
@@ -43,8 +44,7 @@ impl Server {
                                         )
                                         .unwrap();
 
-                                    clients.insert(token, socket);
-                                    buffers.insert(token, Vec::new());
+                                    connections.insert(token, Connection::new(socket));
                                 }
                                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
                                 Err(e) => panic!("{}", e),
@@ -52,32 +52,24 @@ impl Server {
                         }
                     }
                     token => {
-                        let mut close = false;
+                        let close;
 
-                        if let Some(socket) = clients.get_mut(&token) {
-                            if event.is_readable() {
-                                let mut buf = [0u8; 1024];
-                                match socket.read(&mut buf) {
-                                    Ok(0) => close = true,
-                                    Ok(n) => buffers.get_mut(&token).unwrap().extend_from_slice(&buf[..n]),
-                                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                                    Err(_) => close = true,
-                                }
+                        if let Some(conn) = connections.get_mut(&token) {
+                            if event.is_readable() && conn.state == State::Reading {
+                                let _ = conn.read();
                             }
 
-                            if event.is_writable() {
-                                if let Some(data) = buffers.get_mut(&token) {
-                                    if !data.is_empty() {
-                                        let _ = socket.write(data);
-                                        data.clear();
-                                    }
-                                }
+                            if event.is_writable() && conn.state == State::Writing {
+                                let _ = conn.write();
                             }
+
+                            close = conn.state == State::Closed;
+                        } else {
+                            close = false;
                         }
 
                         if close {
-                            clients.remove(&token);
-                            buffers.remove(&token);
+                            connections.remove(&token);
                         }
                     }
                 }
