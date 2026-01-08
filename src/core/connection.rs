@@ -14,7 +14,6 @@ pub struct Connection {
     pub socket: TcpStream,
     pub buffer: Vec<u8>,
     pub state: State,
-    pub keep_alive: bool,
 }
 
 impl Connection {
@@ -23,7 +22,6 @@ impl Connection {
             socket,
             buffer: Vec::new(),
             state: State::Reading,
-            keep_alive: true,
         }
     }
 
@@ -36,17 +34,16 @@ impl Connection {
                 self.buffer.extend_from_slice(&buf[..n]);
 
                 if let Some(req) = Request::parse(&self.buffer) {
-                    let body = match req.path.as_str() {
-                        "/" => "Welcome to Mio HTTP Server",
-                        "/health" => "OK",
-                        _ => {
-                            self.buffer = Response::not_found();
-                            self.state = State::Writing;
-                            return Ok(());
+                    let response = match (req.method.as_str(), req.path.as_str()) {
+                        ("POST", "/echo") => {
+                            let body = String::from_utf8_lossy(&req.body);
+                            Response::ok(&body)
                         }
+                        ("GET", "/") => Response::ok("Mio HTTP Server"),
+                        _ => Response::bad_request(),
                     };
 
-                    self.buffer = Response::ok(body, self.keep_alive);
+                    self.buffer = response;
                     self.state = State::Writing;
                 }
             }
@@ -63,12 +60,7 @@ impl Connection {
             self.buffer.clear();
         }
 
-        if self.keep_alive {
-            self.state = State::Reading;
-        } else {
-            self.state = State::Closed;
-        }
-
+        self.state = State::Reading;
         Ok(())
     }
 }
