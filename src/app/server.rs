@@ -2,30 +2,29 @@ use mio::{Poll, Events, Interest, Token};
 use mio::net::{TcpListener, TcpStream};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
 pub struct Server;
 
 impl Server {
-    pub fn start() {
-        let mut poll = Poll::new().expect("Poll failed");
+    pub fn start(addr: SocketAddr) {
+        let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(128);
 
-        let addr: SocketAddr = "127.0.0.1:10000".parse().unwrap();
-        let mut listener = TcpListener::bind(addr).expect("Bind failed");
+        let mut listener = TcpListener::bind(addr).unwrap();
 
         const SERVER: Token = Token(0);
-        let mut next_token: usize = 1;
-        let mut clients: HashMap<Token, TcpStream> = HashMap::new();
+        let mut next_token = 1;
+
+        let mut clients = HashMap::new();
+        let mut buffers = HashMap::new();
 
         poll.registry()
             .register(&mut listener, SERVER, Interest::READABLE)
-            .expect("Register failed");
-
-        println!("server booting!");
+            .unwrap();
 
         loop {
-            poll.poll(&mut events, None).expect("Poll error");
+            poll.poll(&mut events, None).unwrap();
 
             for event in events.iter() {
                 match event.token() {
@@ -37,33 +36,48 @@ impl Server {
                                     next_token += 1;
 
                                     poll.registry()
-                                        .register(&mut socket, token, Interest::READABLE)
-                                        .expect("Register client failed");
+                                        .register(
+                                            &mut socket,
+                                            token,
+                                            Interest::READABLE | Interest::WRITABLE,
+                                        )
+                                        .unwrap();
 
                                     clients.insert(token, socket);
+                                    buffers.insert(token, Vec::new());
                                 }
                                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                                Err(e) => panic!("accept error: {}", e),
+                                Err(e) => panic!("{}", e),
                             }
                         }
                     }
                     token => {
-                        let mut remove = false;
+                        let mut close = false;
 
                         if let Some(socket) = clients.get_mut(&token) {
-                            let mut buf = [0u8; 1024];
-                            match socket.read(&mut buf) {
-                                Ok(0) => remove = true,
-                                Ok(n) => {
-                                    let _ = &buf[..n];
+                            if event.is_readable() {
+                                let mut buf = [0u8; 1024];
+                                match socket.read(&mut buf) {
+                                    Ok(0) => close = true,
+                                    Ok(n) => buffers.get_mut(&token).unwrap().extend_from_slice(&buf[..n]),
+                                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                                    Err(_) => close = true,
                                 }
-                                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-                                Err(_) => remove = true,
+                            }
+
+                            if event.is_writable() {
+                                if let Some(data) = buffers.get_mut(&token) {
+                                    if !data.is_empty() {
+                                        let _ = socket.write(data);
+                                        data.clear();
+                                    }
+                                }
                             }
                         }
 
-                        if remove {
+                        if close {
                             clients.remove(&token);
+                            buffers.remove(&token);
                         }
                     }
                 }
