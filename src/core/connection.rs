@@ -1,6 +1,8 @@
 use mio::net::TcpStream;
 use std::io::{self, Read, Write};
 
+use crate::core::http::{Request, Response};
+
 #[derive(Debug, PartialEq)]
 pub enum State {
     Reading,
@@ -30,7 +32,12 @@ impl Connection {
             Ok(0) => self.state = State::Closed,
             Ok(n) => {
                 self.buffer.extend_from_slice(&buf[..n]);
-                self.state = State::Writing;
+
+                if let Some(req) = Request::parse(&self.buffer) {
+                    let body = format!("Hello from Mio!\n{} {}", req.method, req.path);
+                    self.buffer = Response::ok(&body);
+                    self.state = State::Writing;
+                }
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
             Err(e) => return Err(e),
@@ -45,7 +52,7 @@ impl Connection {
             self.buffer.clear();
         }
 
-        self.state = State::Reading;
+        self.state = State::Closed;
         Ok(())
     }
 }
