@@ -19,6 +19,7 @@ impl Server {
         let mut next_token = 1;
 
         let mut connections: HashMap<Token, Connection> = HashMap::new();
+        let timeout = 30;
 
         poll.registry()
             .register(&mut listener, SERVER, Interest::READABLE)
@@ -74,6 +75,8 @@ impl Server {
                     }
                 }
             }
+
+            connections.retain(|_, conn| !conn.is_timed_out(timeout));
         }
     }
 }
