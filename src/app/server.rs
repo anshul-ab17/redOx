@@ -17,12 +17,12 @@ impl Server {
 
         const SERVER: Token = Token(0);
         let mut next_token = 1;
-
-        let mut connections: HashMap<Token, Connection> = HashMap::new();
         let timeout = 30;
 
+        let mut connections: HashMap<Token, Connection> = HashMap::new();
+
         poll.registry()
-            .register(&mut listener, SERVER, Interest::READABLE)
+            .register(&mut listener, SERVER, Interest::READABLE | Interest::EDGE)
             .unwrap();
 
         loop {
@@ -41,7 +41,7 @@ impl Server {
                                         .register(
                                             &mut socket,
                                             token,
-                                            Interest::READABLE | Interest::WRITABLE,
+                                            Interest::READABLE | Interest::WRITABLE | Interest::EDGE,
                                         )
                                         .unwrap();
 
