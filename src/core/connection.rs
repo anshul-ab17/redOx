@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::core::http::{Request, Response};
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum State {
     Reading,
     Writing,
@@ -29,45 +29,65 @@ impl Connection {
     }
 
     pub fn read(&mut self) -> io::Result<()> {
-        self.last_active = Instant::now();
+        loop {
+            let mut buf = [0u8; 1024];
 
-        let mut buf = [0u8; 1024];
+            match self.socket.read(&mut buf) {
+                Ok(0) => {
+                    self.state = State::Closed;
+                    break;
+                }
+                Ok(n) => {
+                    self.last_active = Instant::now();
+                    self.buffer.extend_from_slice(&buf[..n]);
 
-        match self.socket.read(&mut buf) {
-            Ok(0) => self.state = State::Closed,
-            Ok(n) => {
-                self.buffer.extend_from_slice(&buf[..n]);
+                    if let Some(req) = Request::parse(&self.buffer) {
+                        let body = match req.path.as_str() {
+                            "/" => "Edge Triggered Mio Server",
+                            "/health" => "OK",
+                            _ => "Not Found",
+                        };
 
-                if let Some(req) = Request::parse(&self.buffer) {
-                    let response = match (req.method.as_str(), req.path.as_str()) {
-                        ("GET", "/") => Response::ok("Mio HTTP Server"),
-                        _ => Response::bad_request(),
-                    };
-
-                    self.buffer = response;
-                    self.state = State::Writing;
+                        self.buffer = Response::ok(body);
+                        self.state = State::Writing;
+                        break;
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(_) => {
+                    self.state = State::Closed;
+                    break;
                 }
             }
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            Err(_) => self.state = State::Closed,
         }
 
         Ok(())
     }
 
     pub fn write(&mut self) -> io::Result<()> {
-        self.last_active = Instant::now();
+        loop {
+            if self.buffer.is_empty() {
+                self.state = State::Reading;
+                break;
+            }
 
-        if !self.buffer.is_empty() {
-            self.socket.write(&self.buffer)?;
-            self.buffer.clear();
+            match self.socket.write(&self.buffer) {
+                Ok(n) => {
+                    self.last_active = Instant::now();
+                    self.buffer.drain(..n);
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(_) => {
+                    self.state = State::Closed;
+                    break;
+                }
+            }
         }
 
-        self.state = State::Reading;
         Ok(())
     }
 
-    pub fn is_timed_out(&self, timeout_secs: u64) -> bool {
-        self.last_active.elapsed().as_secs() > timeout_secs
+    pub fn is_timed_out(&self, secs: u64) -> bool {
+        self.last_active.elapsed().as_secs() > secs
     }
 }
