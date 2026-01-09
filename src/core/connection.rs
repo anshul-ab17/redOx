@@ -42,11 +42,12 @@ impl Connection {
                     self.buffer.extend_from_slice(&buf[..n]);
 
                     if let Some(req) = Request::parse(&self.buffer) {
-                        let body = match req.path.as_str() {
-                            "/" => "Edge Triggered Mio Server",
-                            "/health" => "OK",
+                        let body = match (req.method.as_str(), req.path.as_str()) {
+                            ("GET", "/") => "Edge Triggered Mio Server",
+                            ("GET", "/health") => "OK",
                             _ => "Not Found",
                         };
+
 
                         self.buffer = Response::ok(body);
                         self.state = State::Writing;
