@@ -21,8 +21,9 @@ impl Server {
 
         let mut connections: HashMap<Token, Connection> = HashMap::new();
 
+        // 🔥 FIX: Windows IOCP does NOT support EDGE
         poll.registry()
-            .register(&mut listener, SERVER, Interest::READABLE | Interest::EDGE)
+            .register(&mut listener, SERVER, Interest::READABLE)
             .unwrap();
 
         loop {
@@ -41,7 +42,7 @@ impl Server {
                                         .register(
                                             &mut socket,
                                             token,
-                                            Interest::READABLE | Interest::WRITABLE | Interest::EDGE,
+                                            Interest::READABLE | Interest::WRITABLE,
                                         )
                                         .unwrap();
 
