@@ -92,3 +92,5 @@ impl Connection {
         self.last_active.elapsed().as_secs() > secs
     }
 }
+
+pub is_ws: bool,

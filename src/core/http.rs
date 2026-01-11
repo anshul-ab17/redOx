@@ -1,3 +1,6 @@
+use sha1::{Sha1, Digest};
+use base64::{engine::general_purpose, Engine as _};
+
 pub struct Request {
     pub method: String,
     pub path: String,
@@ -27,4 +30,16 @@ impl Response {
         )
         .into_bytes()
     }
+}
+pub fn is_websocket(buf: &[u8]) -> bool {
+    let text = std::str::from_utf8(buf).unwrap_or("");
+    text.contains("Upgrade: websocket")
+}
+
+
+pub fn ws_accept(key: &str) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(format!("{}258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key));
+    let result = hasher.finalize();
+    general_purpose::STANDARD.encode(result)
 }

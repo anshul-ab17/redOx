@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]  
 mio = { version = "0.8", features = ["net", "os-poll"] }
+sha1 = "0.10"
+base64 = "0.22"
+
